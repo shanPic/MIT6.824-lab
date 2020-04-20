@@ -9,32 +9,48 @@ package mr
 import "os"
 import "strconv"
 
-//
-// example to show how to declare the arguments
-// and reply for an RPC.
-//
+type TaskTypeEnum int8
 
-type ExampleArgs struct {
-	X int
+const (
+	Task_Type_Map    TaskTypeEnum = 0
+	Task_Type_Reduce TaskTypeEnum = 1
+	Task_Type_Wait   TaskTypeEnum = 2
+)
+
+// for Master.GetWorkerID()
+type GetIDArgs struct {
 }
 
-type ExampleReply struct {
-	Y int
+type GetIDReply struct {
+	WorkerID int64 // worker's id
 }
 
+// for Master.RequestTask()
 type ReqArgs struct {
+	WorkID int64
 }
 
 type ReqReply struct {
+	TaskType  TaskTypeEnum // 分配的任务类型（Map/Reduce）
+	TaskID    int64        // 分配的任务的ID
+	FilesName []string     // 分配的任务对应的文件名
 }
 
+// for Master.CompleteTask()
 type CompleteArgs struct {
+	WorkerID int64 // Worker ID
+	TaskID   int64 // 任务ID
+
+	/* 任务完成后输出的结果
+	// 1. Map任务 [key]:ReduceID [value]:输出的文件名
+	// 2. Reduce任务 [key]:文件序号（无特殊含义） [value]:输出的文件名
+	*/
+	FilesName map[int]string
 }
 
 type CompleteReply struct {
+	HasNextTask bool // 是否仍然继续等待下个任务 [true]:继续等待下个任务 [false]:再无下个任务
 }
-
-// Add your RPC definitions here.
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the master.

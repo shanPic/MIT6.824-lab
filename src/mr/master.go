@@ -5,30 +5,48 @@ import "net"
 import "os"
 import "net/rpc"
 import "net/http"
+import "sync"
 
-type Master struct {
-	// Your definitions here.
+type WorkerStateEnum int8
 
+const (
+	Worker_State_Map     WorkerStateEnum = 0
+	Worker_State_Reduce  WorkerStateEnum = 1
+	Worker_State_Timeout WorkerStateEnum = 2
+)
+
+type WorkerState struct {
+	state    WorkerStateEnum // state
+	map_file string          // map tasks分配的file name
+	task_ID  int64
 }
 
-// Your code here -- RPC handlers for the worker to call.
+type Master struct {
+	n_reduce     int      // 执行reduce节点的个数
+	intput_files []string // 输入的文件list
 
-//
-// an example RPC handler.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
+	worker_status map[int64]WorkerState // 维护Worker的当前状态
+
+	worker_ID_mutex sync.Mutex
+	cur_worker_ID   int64 // 当前递增到的worker id
+}
+
+func (m *Master) GetWorkerID(args *GetIDArgs, reply *GetIDReply) error {
+	m.worker_ID_mutex.Lock()
+	reply.WorkerID = m.cur_worker_ID
+	m.cur_worker_ID++
+	m.worker_ID_mutex.Unlock()
 	return nil
 }
 
 func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
 
+	return nil
 }
 
 func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
 
+	return nil
 }
 
 //
