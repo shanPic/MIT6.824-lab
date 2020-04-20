@@ -22,8 +22,19 @@ type ExampleReply struct {
 	Y int
 }
 
-// Add your RPC definitions here.
+type ReqArgs struct {
+}
 
+type ReqReply struct {
+}
+
+type CompleteArgs struct {
+}
+
+type CompleteReply struct {
+}
+
+// Add your RPC definitions here.
 
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the master.

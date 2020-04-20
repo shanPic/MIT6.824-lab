@@ -6,7 +6,6 @@ import "os"
 import "net/rpc"
 import "net/http"
 
-
 type Master struct {
 	// Your definitions here.
 
@@ -24,6 +23,13 @@ func (m *Master) Example(args *ExampleArgs, reply *ExampleReply) error {
 	return nil
 }
 
+func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
+
+}
+
+func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
+
+}
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -43,14 +49,12 @@ func (m *Master) server() {
 
 //
 // main/mrmaster.go calls Done() periodically to find out
-// if the entire job has finished. 
+// if the entire job has finished.
 //
 func (m *Master) Done() bool {
 	ret := false
 
 	// Your code here.
-
-
 
 	return ret
 }
@@ -64,7 +68,6 @@ func MakeMaster(files []string, nReduce int) *Master {
 	m := Master{}
 
 	// Your code here.
-
 
 	m.server()
 	return &m
