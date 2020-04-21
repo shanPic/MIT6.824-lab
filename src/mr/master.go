@@ -83,7 +83,7 @@ func (m *Master) Done() bool {
 // nReduce is the number of reduce tasks to use.
 //
 func MakeMaster(files []string, nReduce int) *Master {
-	m := Master{}
+	m := Master{n_reduce: 1, cur_worker_ID: 0}
 
 	// Your code here.
 

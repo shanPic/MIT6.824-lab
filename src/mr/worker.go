@@ -30,40 +30,39 @@ func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
 	// Your worker implementation here.
+	
+	workerID := CallGetWorkID()
 
-	// uncomment to send the Example RPC to the master.
-	// CallExample()
+	for {
+		req_args := ReqArgs{workerID}
+		req_reply := ReqReply{}
+
+		if !call("Master.RequestTask", &req_args, &req_reply) {
+			// todo
+			continue
+		}
+	}
 
 }
-
-//
-// example function to show how to make an RPC call to the master.
-//
-// the RPC argument and reply types are defined in rpc.go.
-//
-//func CallExample() {
-//
-//	// declare an argument structure.
-//	args := ExampleArgs{}
-//
-//	// fill in the argument(s).
-//	args.X = 99
-//
-//	// declare a reply structure.
-//	reply := ExampleReply{}
-//
-//	// send the RPC request, wait for the reply.
-//	call("Master.Example", &args, &reply)
-//
-//	// reply.Y should be 100.
-//	fmt.Printf("reply.Y %v\n", reply.Y)
-//}
 
 //
 // send an RPC request to the master, wait for the response.
 // usually returns true.
 // returns false if something goes wrong.
 //
+
+// Call GetWorkID test
+func CallGetWorkID() int64 {
+	args := GetIDArgs{}
+	reply := GetIDReply{}
+
+	if call("Master.GetWorkerID", &args, &reply) {
+		fmt.Printf("reply GetworkID:%v\n", reply.WorkerID)
+		return reply.WorkerID
+	}
+}
+
+
 func call(rpcname string, args interface{}, reply interface{}) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
 	sockname := masterSock()
