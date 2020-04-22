@@ -1,6 +1,10 @@
 package mr
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+	"time"
+)
 import "log"
 import "net/rpc"
 import "hash/fnv"
@@ -29,18 +33,23 @@ func ihash(key string) int {
 func Worker(mapf func(string, string) []KeyValue,
 	reducef func(string, []string) string) {
 
-	// Your worker implementation here.
-	
-	workerID := CallGetWorkID()
+	workerID, err := CallGetWorkerID()
+
+	if err != nil {
+		log.Fatal("get worker ID failed!")
+		return
+	}
 
 	for {
 		req_args := ReqArgs{workerID}
 		req_reply := ReqReply{}
 
 		if !call("Master.RequestTask", &req_args, &req_reply) {
-			// todo
+			time.Sleep(1 * time.Second)
 			continue
 		}
+
+		// todo
 	}
 
 }
@@ -52,16 +61,17 @@ func Worker(mapf func(string, string) []KeyValue,
 //
 
 // Call GetWorkID test
-func CallGetWorkID() int64 {
+func CallGetWorkerID() (int64, error) {
 	args := GetIDArgs{}
 	reply := GetIDReply{}
 
 	if call("Master.GetWorkerID", &args, &reply) {
 		fmt.Printf("reply GetworkID:%v\n", reply.WorkerID)
-		return reply.WorkerID
+		return reply.WorkerID, nil
 	}
-}
 
+	return 0, errors.New("rpc call failed!")
+}
 
 func call(rpcname string, args interface{}, reply interface{}) bool {
 	// c, err := rpc.DialHTTP("tcp", "127.0.0.1"+":1234")
