@@ -15,6 +15,7 @@ const (
 	Task_Type_Map    TaskTypeEnum = 0
 	Task_Type_Reduce TaskTypeEnum = 1
 	Task_Type_Wait   TaskTypeEnum = 2
+	Task_Type_Finished	 TaskTypeEnum = 3
 )
 
 // for Master.GetWorkerID()

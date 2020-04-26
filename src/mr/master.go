@@ -95,9 +95,9 @@ func (m *Master) getNewMapTask() (string, error) {
     return "", nil
 }
 
-func (m *Master) getNewReduceTask() (InterFilesDescriptor, error) {
+func (m *Master) getNewReduceTask() (*InterFilesDescriptor, error) {
 
-    return InterFilesDescriptor{}, errors.New("not have a new reducetask!")
+    return nil, errors.New("not have a new reducetask!")
 }
 
 func (m *Master) GetWorkerID(args *GetIDArgs, reply *GetIDReply) error {
@@ -138,7 +138,7 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
             reply.FilesName = make([]string, 0)
             _ = append(reply.FilesName, map_file)
 
-            if m.isMapFinished() {
+            if !m.isMapFinished() {
                 m.worker_status_mutex.Lock()
                 m.worker_status[args.WorkID].state = Worker_State_Map
                 m.worker_status[args.WorkID].map_file = map_file
@@ -149,10 +149,30 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
         }
     }
     case Master_State_Reduce: {
+         reduce_files, err := m.getNewReduceTask()
+         if err != nil {
+             reply.TaskType = Task_Type_Wait
+         } else {
+             reply.TaskType = Task_Type_Reduce
+             reply.FilesName = reduce_files.files_name
+             reduce_files.state = File_State_Doing
+
+             if !m.isReduceFinished() {
+                 m.worker_status_mutex.Lock()
+                 m.worker_status[args.WorkID].state = Worker_State_Reduce
+                 // todo m.worker_status[args.WorkID].task_ID
+                 // todo m.worker_status[args.WorkID].task_bgein_time
+                 m.worker_status_mutex.Unlock()
+             }
+         }
 
     }
     case Master_State_Done: {
+        reply.TaskType = Task_Type_Finished
 
+        m.worker_status_mutex.Lock()
+        m.worker_status[args.WorkID].state = Worker_State_Wait
+        m.worker_status_mutex.Unlock()
     }
     }
     return nil
@@ -217,8 +237,8 @@ func MakeMaster(files []string, nReduce int) *Master {
         n_reduce:           1,
         cur_worker_ID:      0,
         input_files:        make(map[string]FileStateEnum),
-		intermediate_files: make(map[int]InterFilesDescriptor),
-        worker_status:      make(map[int64]WorkerState),
+		intermediate_files: make(map[int]*InterFilesDescriptor),
+        worker_status:      make(map[int64]*WorkerState),
     }
 
     m.input_files_mutex.Lock()
