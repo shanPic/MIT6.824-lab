@@ -2,6 +2,7 @@ package mr
 
 import (
     "errors"
+    "fmt"
     "log"
 )
 import "net"
@@ -91,8 +92,14 @@ func (m *Master) isReduceFinished() bool {
 }
 
 func (m *Master) getNewMapTask() (string, error) {
-
-    return "", nil
+    m.input_files_mutex.Lock()
+    defer m.input_files_mutex.Unlock()
+    for k, v := range m.input_files {
+        if v == File_State_Wait {
+            return k, nil
+        }
+    }
+    return "", errors.New("not have waitting task input file!")
 }
 
 func (m *Master) getNewReduceTask() (*InterFilesDescriptor, error) {
@@ -124,19 +131,47 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
 			// 1.2.1 维护Worker当前状态
 		// 1.3 Done
 			// 返回结束任务的消息
+
+    // 判断此worker的上个任务是否完成
+    {
+        m.worker_status_mutex.Lock()
+        if m.worker_status[args.WorkID].state != Worker_State_Wait {
+            fmt.Println("send wait task")
+            reply.TaskType = Task_Type_Wait
+            m.worker_status_mutex.Unlock()
+            return nil
+        }
+        m.worker_status_mutex.Unlock()
+    }
+
+
+
     m.cur_state_mutex.Lock()
     cp_cur_state := m.cur_state
+    fmt.Printf("cur_state:%v\n", m.cur_state)
     m.cur_state_mutex.Unlock()
     switch  cp_cur_state {
-    case Master_State_Wait: fallthrough
+    case Master_State_Wait: {
+        m.cur_state_mutex.Lock()
+        m.cur_state = Master_State_Map
+        m.cur_state_mutex.Unlock()
+    }
+    fallthrough
     case Master_State_Map: {
         map_file, err := m.getNewMapTask()
         if err != nil {
             reply.TaskType = Task_Type_Wait
         } else {
             reply.TaskType = Task_Type_Map
+
+            m.input_files_mutex.Lock()
+            m.input_files[map_file] = File_State_Doing
+            m.input_files_mutex.Unlock()
+
+            fmt.Println(map_file) // for test
+
             reply.FilesName = make([]string, 0)
-            _ = append(reply.FilesName, map_file)
+            reply.FilesName = append(reply.FilesName, map_file)
 
             if !m.isMapFinished() {
                 m.worker_status_mutex.Lock()
@@ -245,6 +280,7 @@ func MakeMaster(files []string, nReduce int) *Master {
     for _, file := range files {
         m.input_files[file] = File_State_Wait
     }
+    //fmt.Println(m.input_files)
     m.input_files_mutex.Unlock()
 
     // Your code here.

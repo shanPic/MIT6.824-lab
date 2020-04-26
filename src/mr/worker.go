@@ -44,10 +44,26 @@ func Worker(mapf func(string, string) []KeyValue,
 		req_args := ReqArgs{workerID}
 		req_reply := ReqReply{}
 
-		if !call("Master.RequestTask", &req_args, &req_reply) {
-			time.Sleep(1 * time.Second)
-			continue
+		if  call("Master.RequestTask", &req_args, &req_reply) {
+			if req_reply.TaskType == Task_Type_Map {
+				fmt.Printf("task type is map, task file name is %v\n", req_reply.FilesName)
+
+				// todo do map
+			}
+			if req_reply.TaskType == Task_Type_Reduce {
+				fmt.Printf("task type is map, task file name is %v\n", req_reply.FilesName)
+
+				// todo do reduce
+			}
+			if req_reply.TaskType == Task_Type_Wait {
+				fmt.Printf("task type is wait\n")
+				// todo do wait
+			}
+		} else {
+			fmt.Printf("request task failed!\n")
 		}
+
+		time.Sleep(1 * time.Second)
 
 		// todo
 	}
@@ -79,6 +95,7 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	c, err := rpc.DialHTTP("unix", sockname)
 	if err != nil {
 		log.Fatal("dialing:", err)
+		fmt.Println(err)
 	}
 	defer c.Close()
 
@@ -88,5 +105,6 @@ func call(rpcname string, args interface{}, reply interface{}) bool {
 	}
 
 	fmt.Println(err)
+	fmt.Println("request failed!")
 	return false
 }
