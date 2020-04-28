@@ -144,8 +144,6 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
         m.worker_status_mutex.Unlock()
     }
 
-
-
     m.cur_state_mutex.Lock()
     cp_cur_state := m.cur_state
     fmt.Printf("cur_state:%v\n", m.cur_state)
@@ -227,6 +225,28 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
 			// 返回结束任务的消息 或 不做处理
 	// 2. 维护Master状态机状态
 		// 使用isMapFinished()或isReduceFinished()维护状态
+    m.cur_state_mutex.Lock()
+    cp_cur_state := m.cur_state
+    m.cur_state_mutex.Unlock()
+
+    switch cp_cur_state {
+    case Master_State_Wait: {
+        m.cur_state_mutex.Lock()
+        m.cur_state = Master_State_Map
+        m.cur_state_mutex.Unlock()
+    }
+    fallthrough
+    case Master_State_Map: {
+
+    }
+    case Master_State_Reduce: {
+
+    }
+    case Master_State_Done: {
+
+    }
+    }
+
     return nil
 }
 
