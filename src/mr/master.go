@@ -238,9 +238,22 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
     fallthrough
     case Master_State_Map: {
 
+
+        // 维护Master状态
+        if m.isMapFinished() {
+            m.cur_state_mutex.Lock()
+            m.cur_state = Master_State_Reduce
+            m.cur_state_mutex.Unlock()
+        }
     }
     case Master_State_Reduce: {
 
+        // 维护Master状态
+        if m.isReduceFinished() {
+            m.cur_state_mutex.Lock()
+            m.cur_state = Master_State_Done
+            m.cur_state_mutex.Unlock()
+        }
     }
     case Master_State_Done: {
 

@@ -41,6 +41,7 @@ type ReqReply struct {
 type CompleteArgs struct {
 	WorkerID int64 // Worker ID
 	TaskID   int64 // 任务ID
+	//todo 任务完成的状态
 
 	/* 任务完成后输出的结果
 	// 1. Map任务 [key]:ReduceID [value]:输出的文件名
