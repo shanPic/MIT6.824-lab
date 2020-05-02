@@ -10,7 +10,6 @@ import "os"
 import "strconv"
 
 type TaskTypeEnum int8
-
 const (
 	Task_Type_Map    TaskTypeEnum = 0
 	Task_Type_Reduce TaskTypeEnum = 1

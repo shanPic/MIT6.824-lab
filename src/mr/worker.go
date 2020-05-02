@@ -44,10 +44,15 @@ func Worker(mapf func(string, string) []KeyValue,
 		req_args := ReqArgs{workerID}
 		req_reply := ReqReply{}
 
+		var complete_args CompleteArgs
+		var complete_reply CompleteReply
+
+		complete_args.WorkerID = workerID
+
 		if  call("Master.RequestTask", &req_args, &req_reply) {
+			complete_args.TaskID = req_reply.TaskID
 			if req_reply.TaskType == Task_Type_Map {
 				fmt.Printf("task type is map, task file name is %v\n", req_reply.FilesName)
-
 				// todo do map
 			}
 			if req_reply.TaskType == Task_Type_Reduce {
@@ -61,6 +66,15 @@ func Worker(mapf func(string, string) []KeyValue,
 			}
 		} else {
 			fmt.Printf("request task failed!\n")
+		}
+
+		if call("Master.CompleteTask", &complete_args, &complete_reply) {
+			if !complete_reply.HasNextTask {
+				fmt.Println("not have task, break")
+				break
+			}
+		} else {
+			break
 		}
 
 		time.Sleep(1 * time.Second)

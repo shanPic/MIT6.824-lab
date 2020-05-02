@@ -44,6 +44,13 @@ type WorkerState struct {
 type InterFilesDescriptor struct {
     files_name 	[]string
     state		FileStateEnum
+    reduce_ID   int
+}
+
+type TaskeDescriptor struct {
+    taks_type TaskTypeEnum
+    input_file string
+    reduce_ID   int
 }
 
 type Master struct {
@@ -63,6 +70,10 @@ type Master struct {
 
     worker_ID_mutex sync.Mutex
     cur_worker_ID   int64 // 当前递增到的worker id
+
+    task_status_mutex   sync.Mutex
+    cur_task_ID     int64
+    task_status     map[int64]*TaskeDescriptor
 }
 
 func (m *Master) isMapFinished() bool {
@@ -96,15 +107,25 @@ func (m *Master) getNewMapTask() (string, error) {
     defer m.input_files_mutex.Unlock()
     for k, v := range m.input_files {
         if v == File_State_Wait {
+            m.input_files[k] = File_State_Doing
             return k, nil
         }
     }
     return "", errors.New("not have waitting task input file!")
 }
 
-func (m *Master) getNewReduceTask() (*InterFilesDescriptor, error) {
+func (m *Master) getNewReduceTask() (int, *InterFilesDescriptor, error) {
+    m.intermediate_files_mutex.Lock()
+    defer m.intermediate_files_mutex.Unlock()
 
-    return nil, errors.New("not have a new reducetask!")
+    for k, v := range m.intermediate_files {
+        if v.state == File_State_Wait {
+            v.state = File_State_Doing
+            return k, v, nil
+        }
+    }
+
+    return -1, nil, errors.New("not have a new reducetask!")
 }
 
 func (m *Master) GetWorkerID(args *GetIDArgs, reply *GetIDReply) error {
@@ -125,10 +146,10 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
 	// 1. 判断Master状态机状态
 		// 1.1 Map阶段
 			// 1.1.1 从输入文件中选择一个还未处理的文件，赋值给reply
-			// 1.1.2 维护Worker当前状态（Work_status）
+			// 1.1.2 维护task列表状态，维护Worker当前状态（Work_status）
 		// 1.2 Reduce
 			// 1.2.1 从中间文件列表中选择一组还未处理的文件，赋值给reply
-			// 1.2.1 维护Worker当前状态
+			// 1.2.1 维护Task列表，维护Worker当前状态
 		// 1.3 Done
 			// 返回结束任务的消息
 
@@ -143,6 +164,7 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
         }
         m.worker_status_mutex.Unlock()
     }
+    // todo 判断req参数中的完成状态
 
     m.cur_state_mutex.Lock()
     cp_cur_state := m.cur_state
@@ -160,40 +182,59 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
         if err != nil {
             reply.TaskType = Task_Type_Wait
         } else {
-            reply.TaskType = Task_Type_Map
+            // 维护task状态
+            m.task_status_mutex.Lock()
+            task_ID := m.cur_task_ID
+            m.cur_task_ID++
+            m.task_status[task_ID].taks_type = Task_Type_Map
+            m.task_status[task_ID].input_file = map_file
+            m.task_status_mutex.Unlock()
 
-            m.input_files_mutex.Lock()
-            m.input_files[map_file] = File_State_Doing
-            m.input_files_mutex.Unlock()
+            reply.TaskType = Task_Type_Map
+            reply.TaskID = task_ID
+
+            //// 维护input_files状态
+            //m.input_files_mutex.Lock()
+            //m.input_files[map_file] = File_State_Doing
+            //m.input_files_mutex.Unlock()
 
             fmt.Println(map_file) // for test
 
             reply.FilesName = make([]string, 0)
             reply.FilesName = append(reply.FilesName, map_file)
 
+            // 维护worker状态
             if !m.isMapFinished() {
                 m.worker_status_mutex.Lock()
                 m.worker_status[args.WorkID].state = Worker_State_Map
                 m.worker_status[args.WorkID].map_file = map_file
-                // todo m.worker_status[args.WorkID].task_ID
+                m.worker_status[args.WorkID].task_ID = task_ID
                 //todo m.worker_status[args.WorkID].task_bgein_time
                 m.worker_status_mutex.Unlock()
             }
         }
     }
     case Master_State_Reduce: {
-         reduce_files, err := m.getNewReduceTask()
+         reduce_ID, reduce_files, err := m.getNewReduceTask()
          if err != nil {
              reply.TaskType = Task_Type_Wait
          } else {
+             // 维护task状态
+             m.task_status_mutex.Lock()
+             task_ID := m.cur_task_ID
+             m.cur_task_ID++
+             m.task_status[task_ID].taks_type = Task_Type_Map
+             m.task_status[task_ID].reduce_ID = reduce_ID
+             m.task_status_mutex.Unlock()
+
              reply.TaskType = Task_Type_Reduce
              reply.FilesName = reduce_files.files_name
-             reduce_files.state = File_State_Doing
 
+             // 维护worker状态
              if !m.isReduceFinished() {
                  m.worker_status_mutex.Lock()
                  m.worker_status[args.WorkID].state = Worker_State_Reduce
-                 // todo m.worker_status[args.WorkID].task_ID
+                 m.worker_status[args.WorkID].task_ID = task_ID
                  // todo m.worker_status[args.WorkID].task_bgein_time
                  m.worker_status_mutex.Unlock()
              }
@@ -215,16 +256,17 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
 	// 1. 判断Master状态机状态
 		// 1.1 Map阶段
 			// 1.1.1 判断输入是否为Map结果
-			// 1.1.2 修改输入文件列表中的相应状态为done。如果发现文件状态为wait，则表明此文件的上个任务已经超时。
+			// 1.1.2 维护输入文件列表状态，修改输入文件列表中的相应状态为done。如果发现文件状态为wait，则表明此文件的上个任务已经超时。
 			// 1.1.3 维护Worker状态
 		// 1.2 Reduce阶段
 			// 1.2.1 判断输入是否为Reduce结果
-			// 1.2.2 修改中间文件列表中的相应状态为done。
+			// 1.2.2 维护中间文件列表状态，修改中间文件列表中的相应状态为done。
 			// 1.2.3 维护Worker状态
 		// 1.3 Done阶段
 			// 返回结束任务的消息 或 不做处理
 	// 2. 维护Master状态机状态
 		// 使用isMapFinished()或isReduceFinished()维护状态
+
     m.cur_state_mutex.Lock()
     cp_cur_state := m.cur_state
     m.cur_state_mutex.Unlock()
@@ -237,7 +279,27 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
     }
     fallthrough
     case Master_State_Map: {
+        m.task_status_mutex.Lock()
+        task_file := m.task_status[args.TaskID].input_file
+        m.task_status_mutex.Unlock()
 
+        m.input_files_mutex.Lock()
+        if m.input_files[task_file] == File_State_Doing {
+            m.input_files[task_file] = File_State_Done
+        } else {
+            reply.HasNextTask = true
+            m.input_files_mutex.Unlock()
+            break
+        }
+        m.input_files_mutex.Unlock()
+
+        // 将输出文件添加至中间文件列表
+        m.intermediate_files_mutex.Lock()
+        for k, v := range args.FilesName {
+            m.intermediate_files[k].files_name = append(m.intermediate_files[k].files_name, v)
+            m.intermediate_files[k].state = File_State_Wait
+        }
+        m.intermediate_files_mutex.Unlock()
 
         // 维护Master状态
         if m.isMapFinished() {
@@ -245,8 +307,20 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
             m.cur_state = Master_State_Reduce
             m.cur_state_mutex.Unlock()
         }
+
+        fmt.Printf("Map task:%v done, file name: %v", args.TaskID, task_file)
+
+        reply.HasNextTask = true
     }
     case Master_State_Reduce: {
+
+        m.task_status_mutex.Lock()
+        reduce_ID := m.task_status[args.TaskID].reduce_ID
+        m.task_status_mutex.Unlock()
+
+        m.intermediate_files_mutex.Lock()
+        m.intermediate_files[reduce_ID].state = File_State_Done
+        m.intermediate_files_mutex.Unlock()
 
         // 维护Master状态
         if m.isReduceFinished() {
@@ -254,9 +328,13 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
             m.cur_state = Master_State_Done
             m.cur_state_mutex.Unlock()
         }
+
+        fmt.Printf("Reduce task:%v done", args.TaskID)
+
+        reply.HasNextTask = true
     }
     case Master_State_Done: {
-
+        reply.HasNextTask = false
     }
     }
 
@@ -307,6 +385,8 @@ func MakeMaster(files []string, nReduce int) *Master {
         input_files:        make(map[string]FileStateEnum),
 		intermediate_files: make(map[int]*InterFilesDescriptor),
         worker_status:      make(map[int64]*WorkerState),
+        cur_task_ID:        0,
+        task_status:        make(map[int64]*TaskeDescriptor),
     }
 
     m.input_files_mutex.Lock()
@@ -319,5 +399,7 @@ func MakeMaster(files []string, nReduce int) *Master {
     // Your code here.
 
     m.server()
+
+    //todo 任务超时判断
     return &m
 }
