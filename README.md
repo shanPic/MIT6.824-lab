@@ -4,7 +4,7 @@ MIT6.824
 ## Lab1 MapReduce
 - [x] Master与Worker的接口定义 100%
 - [x] Master内部状态定义      100%
-- [ ] Master内部逻辑与接口实现 30%
+- [x] Master内部逻辑与接口实现 30%
 - [ ] Worker内部逻辑实现      5%
 
 细节TODO:
