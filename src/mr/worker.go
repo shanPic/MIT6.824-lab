@@ -3,6 +3,7 @@ package mr
 import (
 	"errors"
 	"fmt"
+	"os"
 	"time"
 )
 import "log"
@@ -49,6 +50,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 		complete_args.WorkerID = workerID
 
+		out_files := make(map[int]string, 1)
 		if  call("Master.RequestTask", &req_args, &req_reply) {
 			complete_args.TaskID = req_reply.TaskID
 			if req_reply.TaskType == Task_Type_Map {
@@ -59,6 +61,10 @@ func Worker(mapf func(string, string) []KeyValue,
 				fmt.Printf("task type is map, task file name is %v\n", req_reply.FilesName)
 
 				// todo do reduce
+				out_file_name := "mr-out-" + string(req_reply.ReduceID)
+				os.Create(out_file_name)
+
+				out_files[0] = out_file_name
 			}
 			if req_reply.TaskType == Task_Type_Wait {
 				fmt.Printf("task type is wait\n")
@@ -68,6 +74,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			fmt.Printf("request task failed!\n")
 		}
 
+		complete_args.FilesName = out_files
 		if call("Master.CompleteTask", &complete_args, &complete_reply) {
 			if !complete_reply.HasNextTask {
 				fmt.Println("not have task, break")

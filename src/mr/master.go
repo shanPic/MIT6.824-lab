@@ -186,6 +186,11 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
             m.task_status_mutex.Lock()
             task_ID := m.cur_task_ID
             m.cur_task_ID++
+            fmt.Printf("task_status size: %v\n", len(m.task_status))
+            if m.task_status == nil {
+                println("task_status is nil")
+            }
+            m.task_status[task_ID] = &TaskeDescriptor{}
             m.task_status[task_ID].taks_type = Task_Type_Map
             m.task_status[task_ID].input_file = map_file
             m.task_status_mutex.Unlock()
@@ -229,6 +234,7 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
 
              reply.TaskType = Task_Type_Reduce
              reply.FilesName = reduce_files.files_name
+             reply.ReduceID = reduce_ID
 
              // 维护worker状态
              if !m.isReduceFinished() {
@@ -308,7 +314,7 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
             m.cur_state_mutex.Unlock()
         }
 
-        fmt.Printf("Map task:%v done, file name: %v", args.TaskID, task_file)
+        fmt.Printf("Map task:%v done, file name: %v\n", args.TaskID, task_file)
 
         reply.HasNextTask = true
     }
@@ -319,6 +325,7 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
         m.task_status_mutex.Unlock()
 
         m.intermediate_files_mutex.Lock()
+        m.intermediate_files[reduce_ID] = &InterFilesDescriptor{}
         m.intermediate_files[reduce_ID].state = File_State_Done
         m.intermediate_files_mutex.Unlock()
 
@@ -329,7 +336,7 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
             m.cur_state_mutex.Unlock()
         }
 
-        fmt.Printf("Reduce task:%v done", args.TaskID)
+        fmt.Printf("Reduce task:%v done\n", args.TaskID)
 
         reply.HasNextTask = true
     }
@@ -337,6 +344,11 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
         reply.HasNextTask = false
     }
     }
+
+    // 维护Worker状态
+    m.worker_status_mutex.Lock()
+    m.worker_status[args.WorkerID].state = Worker_State_Wait
+    m.worker_status_mutex.Unlock()
 
     return nil
 }
@@ -401,5 +413,7 @@ func MakeMaster(files []string, nReduce int) *Master {
     m.server()
 
     //todo 任务超时判断
+
+
     return &m
 }

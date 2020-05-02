@@ -33,6 +33,7 @@ type ReqArgs struct {
 type ReqReply struct {
 	TaskType  TaskTypeEnum // 分配的任务类型（Map/Reduce）
 	TaskID    int64        // 分配的任务的ID
+	ReduceID  int
 	FilesName []string     // 分配的任务对应的文件名
 }
 
