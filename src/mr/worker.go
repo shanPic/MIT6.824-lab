@@ -3,6 +3,7 @@ package mr
 import (
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"time"
 )
@@ -56,6 +57,16 @@ func Worker(mapf func(string, string) []KeyValue,
 			if req_reply.TaskType == Task_Type_Map {
 				fmt.Printf("task type is map, task file name is %v\n", req_reply.FilesName)
 				// todo do map
+				input_file, err := os.Open(req_reply.FilesName[0])
+				defer input_file.Close()
+				if err != nil {
+					log.Fatalf("open file %v failed", req_reply.FilesName[0])
+				}
+
+				content, err := ioutil.ReadAll(input_file)
+
+				map_result := mapf(req_reply.FilesName[0], string(content))
+				mapResultWriter(map_result, req_reply.TaskID)
 			}
 			if req_reply.TaskType == Task_Type_Reduce {
 				fmt.Printf("task type is map, task file name is %v\n", req_reply.FilesName)
@@ -88,6 +99,13 @@ func Worker(mapf func(string, string) []KeyValue,
 
 		// todo
 	}
+}
+
+func mapResultWriter(map_result []mr.KeyValue, task_ID int64) {
+
+}
+
+func reduceResultWriter(reduce_result string) {
 
 }
 
