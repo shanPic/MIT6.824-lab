@@ -10,6 +10,7 @@ import (
 import "log"
 import "net/rpc"
 import "hash/fnv"
+import "encoding/json"
 
 //
 // Map functions return a slice of KeyValue.
@@ -56,7 +57,6 @@ func Worker(mapf func(string, string) []KeyValue,
 			complete_args.TaskID = req_reply.TaskID
 			if req_reply.TaskType == Task_Type_Map {
 				fmt.Printf("task type is map, task file name is %v\n", req_reply.FilesName)
-				// todo do map
 				input_file, err := os.Open(req_reply.FilesName[0])
 				defer input_file.Close()
 				if err != nil {
@@ -71,15 +71,21 @@ func Worker(mapf func(string, string) []KeyValue,
 			if req_reply.TaskType == Task_Type_Reduce {
 				fmt.Printf("task type is map, task file name is %v\n", req_reply.FilesName)
 
-				// todo do reduce
-				out_file_name := "mr-out-" + string(req_reply.ReduceID)
-				os.Create(out_file_name)
+				reduce_data := parseMapResult(req_reply.FilesName)
 
-				out_files[0] = out_file_name
+				total_reduce_result := make([]string, 0)
+				for k, v := range reduce_data {
+					cur_k_reduce_result := reducef(k, v)
+					format_reduce_result := fmt.Sprint("%v %v\n", k, cur_k_reduce_result)
+					total_reduce_result = append(total_reduce_result, format_reduce_result)
+				}
+
+				reduceResultWriter(total_reduce_result)
+
+				//out_files[0] = out_file_name
 			}
 			if req_reply.TaskType == Task_Type_Wait {
 				fmt.Printf("task type is wait\n")
-				// todo do wait
 			}
 		} else {
 			fmt.Printf("request task failed!\n")
@@ -101,12 +107,50 @@ func Worker(mapf func(string, string) []KeyValue,
 	}
 }
 
-func mapResultWriter(map_result []mr.KeyValue, task_ID int64) {
+func mapResultWriter(map_result []KeyValue, task_ID int64) []string {
+	split_map_result := make(map[int][]KeyValue)
 
+	for _, v := range map_result {
+		k := v.Key
+		reduce_ID := ihash(k) % 6
+		_, ok := split_map_result[reduce_ID]
+		if !ok {
+			split_map_result[reduce_ID] = make([]KeyValue, 0)
+		}
+		split_map_result[reduce_ID] = append(split_map_result[reduce_ID], v)
+	}
+
+	for reduce_ID, data := range split_map_result {
+		cur_ID_output := fmt.Sprintf("./int/mr-int-%v-%v", task_ID, reduce_ID)
+		ofile, err := os.Create(cur_ID_output)
+		//fmt.Printf("key: %v, value: %v\n", reduce_ID, data)
+		if err != nil {
+			log.Fatal(err.Error())
+		}
+
+		enc := json.NewEncoder(ofile)
+		for _, v := range data {
+			//fmt.Printf("%v:%v\n", v.Key, v.Value)
+			err := enc.Encode(&v)
+			if err != nil {
+				log.Fatal(err.Error())
+			}
+		}
+
+	}
+
+	return nil
 }
 
-func reduceResultWriter(reduce_result string) {
+func parseMapResult(input_files []string) map[string][]string {
 
+	return nil
+}
+
+func reduceResultWriter(reduce_result []string) string {
+	//out_file_name := "mr-out-" + string(req_reply.ReduceID)
+	//os.Create(out_file_name)
+	return ""
 }
 
 //
