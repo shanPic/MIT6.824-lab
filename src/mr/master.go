@@ -291,6 +291,7 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
 
         m.input_files_mutex.Lock()
         if m.input_files[task_file] == File_State_Doing {
+            fmt.Printf("file %v done\n", task_file)
             m.input_files[task_file] = File_State_Done
         } else {
             reply.HasNextTask = true
@@ -302,19 +303,27 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
         // 将输出文件添加至中间文件列表
         m.intermediate_files_mutex.Lock()
         for k, v := range args.FilesName {
+            if _,ok := m.intermediate_files[k]; !ok {
+                m.intermediate_files[k] = &InterFilesDescriptor{
+                    files_name: make([]string, 0),
+                    state: File_State_Wait,
+                    reduce_ID: k,
+                }
+            }
             m.intermediate_files[k].files_name = append(m.intermediate_files[k].files_name, v)
             m.intermediate_files[k].state = File_State_Wait
         }
         m.intermediate_files_mutex.Unlock()
 
+        fmt.Printf("Map task:%v done, file name: %v\n", args.TaskID, task_file)
+
         // 维护Master状态
         if m.isMapFinished() {
+            fmt.Printf("Master into Reduce phase\n")
             m.cur_state_mutex.Lock()
             m.cur_state = Master_State_Reduce
             m.cur_state_mutex.Unlock()
         }
-
-        fmt.Printf("Map task:%v done, file name: %v\n", args.TaskID, task_file)
 
         reply.HasNextTask = true
     }
