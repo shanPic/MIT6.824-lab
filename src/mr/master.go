@@ -10,6 +10,7 @@ import "os"
 import "net/rpc"
 import "net/http"
 import "sync"
+import "time"
 
 type WorkerStateEnum int8
 const (
@@ -36,9 +37,9 @@ const (
 
 type WorkerState struct {
     state    WorkerStateEnum // state
-    map_file string          // map tasks分配的file name
+    map_file string          // map tasks分配的file name //todo 与task描述中的file重复了
     task_ID  int64
-    task_bgein_time int64 // todo
+    task_bgein_time int64
 }
 
 type InterFilesDescriptor struct {
@@ -47,8 +48,8 @@ type InterFilesDescriptor struct {
     reduce_ID   int
 }
 
-type TaskeDescriptor struct {
-    taks_type TaskTypeEnum
+type TaskDescriptor struct {
+    task_type  TaskTypeEnum
     input_file string
     reduce_ID   int
 }
@@ -73,7 +74,7 @@ type Master struct {
 
     task_status_mutex   sync.Mutex
     cur_task_ID     int64
-    task_status     map[int64]*TaskeDescriptor
+    task_status     map[int64]*TaskDescriptor
 }
 
 func (m *Master) isMapFinished() bool {
@@ -157,7 +158,7 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
     {
         m.worker_status_mutex.Lock()
         if m.worker_status[args.WorkID].state != Worker_State_Wait {
-            fmt.Println("send wait task")
+            //fmt.Println("send wait task")
             reply.TaskType = Task_Type_Wait
             m.worker_status_mutex.Unlock()
             return nil
@@ -167,14 +168,12 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
     // todo 判断req参数中的完成状态
 
     m.cur_state_mutex.Lock()
-    cp_cur_state := m.cur_state
-    fmt.Printf("cur_state:%v\n", m.cur_state)
-    m.cur_state_mutex.Unlock()
-    switch  cp_cur_state {
+    //fmt.Printf("cur_state:%v\n", m.cur_state)
+    defer m.cur_state_mutex.Unlock()
+
+    switch  m.cur_state {
     case Master_State_Wait: {
-        m.cur_state_mutex.Lock()
         m.cur_state = Master_State_Map
-        m.cur_state_mutex.Unlock()
     }
     fallthrough
     case Master_State_Map: {
@@ -186,12 +185,12 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
             m.task_status_mutex.Lock()
             task_ID := m.cur_task_ID
             m.cur_task_ID++
-            fmt.Printf("task_status size: %v\n", len(m.task_status))
+            //fmt.Printf("task_status size: %v\n", len(m.task_status))
             if m.task_status == nil {
                 println("task_status is nil")
             }
-            m.task_status[task_ID] = &TaskeDescriptor{}
-            m.task_status[task_ID].taks_type = Task_Type_Map
+            m.task_status[task_ID] = &TaskDescriptor{}
+            m.task_status[task_ID].task_type = Task_Type_Map
             m.task_status[task_ID].input_file = map_file
             m.task_status_mutex.Unlock()
 
@@ -203,7 +202,7 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
             //m.input_files[map_file] = File_State_Doing
             //m.input_files_mutex.Unlock()
 
-            fmt.Println(map_file) // for test
+            //fmt.Println(map_file) // for test
 
             reply.FilesName = make([]string, 0)
             reply.FilesName = append(reply.FilesName, map_file)
@@ -228,13 +227,21 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
              m.task_status_mutex.Lock()
              task_ID := m.cur_task_ID
              m.cur_task_ID++
-             m.task_status[task_ID].taks_type = Task_Type_Map
-             m.task_status[task_ID].reduce_ID = reduce_ID
+             if _,ok := m.task_status[task_ID]; !ok {
+                 m.task_status[task_ID] = &TaskDescriptor{
+                     task_type: Task_Type_Reduce,
+                     reduce_ID: reduce_ID,
+                 }
+             } else {
+                 m.task_status[task_ID].task_type = Task_Type_Reduce
+                 m.task_status[task_ID].reduce_ID = reduce_ID
+             }
              m.task_status_mutex.Unlock()
 
              reply.TaskType = Task_Type_Reduce
              reply.FilesName = reduce_files.files_name
              reply.ReduceID = reduce_ID
+             reply.TaskID = task_ID
 
              // 维护worker状态
              if !m.isReduceFinished() {
@@ -255,6 +262,12 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
         m.worker_status_mutex.Unlock()
     }
     }
+
+    // 维护worker时间戳
+    m.worker_status_mutex.Lock()
+    m.worker_status[args.WorkID].task_bgein_time = time.Now().Unix()
+    m.worker_status_mutex.Unlock()
+
     return nil
 }
 
@@ -273,15 +286,21 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
 	// 2. 维护Master状态机状态
 		// 使用isMapFinished()或isReduceFinished()维护状态
 
-    m.cur_state_mutex.Lock()
-    cp_cur_state := m.cur_state
-    m.cur_state_mutex.Unlock()
+    // 判断此Worker是否是已经超时的Worker
+    m.worker_status_mutex.Lock()
+    if m.worker_status[args.WorkerID].state == Worker_State_Timeout {
+        reply.HasNextTask = false
+        return nil
+    }
+    m.worker_status_mutex.Unlock()
 
-    switch cp_cur_state {
+
+    m.cur_state_mutex.Lock()
+    defer m.cur_state_mutex.Unlock()
+
+    switch m.cur_state {
     case Master_State_Wait: {
-        m.cur_state_mutex.Lock()
         m.cur_state = Master_State_Map
-        m.cur_state_mutex.Unlock()
     }
     fallthrough
     case Master_State_Map: {
@@ -291,7 +310,7 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
 
         m.input_files_mutex.Lock()
         if m.input_files[task_file] == File_State_Doing {
-            fmt.Printf("file %v done\n", task_file)
+            //fmt.Printf("file %v done\n", task_file)
             m.input_files[task_file] = File_State_Done
         } else {
             reply.HasNextTask = true
@@ -315,14 +334,12 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
         }
         m.intermediate_files_mutex.Unlock()
 
-        fmt.Printf("Map task:%v done, file name: %v\n", args.TaskID, task_file)
+        //fmt.Printf("Map task:%v done, file name: %v\n", args.TaskID, task_file)
 
         // 维护Master状态
         if m.isMapFinished() {
-            fmt.Printf("Master into Reduce phase\n")
-            m.cur_state_mutex.Lock()
+            //fmt.Printf("Master into Reduce phase\n")
             m.cur_state = Master_State_Reduce
-            m.cur_state_mutex.Unlock()
         }
 
         reply.HasNextTask = true
@@ -340,12 +357,10 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
 
         // 维护Master状态
         if m.isReduceFinished() {
-            m.cur_state_mutex.Lock()
             m.cur_state = Master_State_Done
-            m.cur_state_mutex.Unlock()
         }
 
-        fmt.Printf("Reduce task:%v done\n", args.TaskID)
+        //fmt.Printf("Reduce task:%v done\n", reduce_ID)
 
         reply.HasNextTask = true
     }
@@ -394,6 +409,45 @@ func (m *Master) Done() bool {
     return ret
 }
 
+func WorkerAliveProbe(m *Master) {
+    for {
+        m.worker_status_mutex.Lock()
+        cur_time := time.Now().Unix()
+        for k, v := range m.worker_status {
+
+            if v.state == Worker_State_Timeout {
+                continue
+            }
+
+            if v.task_bgein_time == 0 {
+                continue
+            }
+
+            if cur_time < v.task_bgein_time || cur_time - v.task_bgein_time > 3 {
+                fmt.Printf("worker %v crashed!\n", k)
+                if v.state == Worker_State_Map {
+                    m.input_files_mutex.Lock()
+                    m.input_files[v.map_file] = File_State_Wait
+                    m.input_files_mutex.Unlock()
+                }
+                if v.state == Worker_State_Reduce {
+                    m.task_status_mutex.Lock()
+                    reduce_ID := m.task_status[v.task_ID].reduce_ID
+                    m.task_status_mutex.Unlock()
+
+                    m.intermediate_files_mutex.Lock()
+                    m.intermediate_files[reduce_ID].state = File_State_Wait
+                    m.intermediate_files_mutex.Unlock()
+                }
+
+                v.state = Worker_State_Timeout
+            }
+        }
+        m.worker_status_mutex.Unlock()
+        time.Sleep(2 * time.Second)
+    }
+}
+
 //
 // create a Master.
 // main/mrmaster.go calls this function.
@@ -407,7 +461,7 @@ func MakeMaster(files []string, nReduce int) *Master {
 		intermediate_files: make(map[int]*InterFilesDescriptor),
         worker_status:      make(map[int64]*WorkerState),
         cur_task_ID:        0,
-        task_status:        make(map[int64]*TaskeDescriptor),
+        task_status:        make(map[int64]*TaskDescriptor),
     }
 
     m.input_files_mutex.Lock()
@@ -417,11 +471,14 @@ func MakeMaster(files []string, nReduce int) *Master {
     //fmt.Println(m.input_files)
     m.input_files_mutex.Unlock()
 
+    fmt.Printf("total input files: %v\n", len(m.input_files))
+
     // Your code here.
 
     m.server()
 
     //todo 任务超时判断
+    go WorkerAliveProbe(&m)
 
 
     return &m

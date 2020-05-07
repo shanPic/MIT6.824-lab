@@ -56,7 +56,8 @@ func Worker(mapf func(string, string) []KeyValue,
 		if  call("Master.RequestTask", &req_args, &req_reply) {
 			complete_args.TaskID = req_reply.TaskID
 			if req_reply.TaskType == Task_Type_Map {
-				fmt.Printf("task type is map, task file name is %v\n", req_reply.FilesName)
+				//fmt.Printf("task type is map, task file name is %v\n", req_reply.FilesName)
+				fmt.Printf("Worker %v get new map task\n", workerID)
 				input_file, err := os.Open(req_reply.FilesName[0])
 				defer input_file.Close()
 				if err != nil {
@@ -68,25 +69,34 @@ func Worker(mapf func(string, string) []KeyValue,
 				map_result := mapf(req_reply.FilesName[0], string(content))
 				map_out_files := mapResultWriter(map_result, req_reply.TaskID)
 				out_files = *map_out_files
+
+				fmt.Printf("Worker %v finish map task\n", workerID)
 			}
 			if req_reply.TaskType == Task_Type_Reduce {
-				fmt.Printf("task type is reduce, task file name is %v\n", req_reply.FilesName)
+				//fmt.Printf("task type is reduce, task file name is %v\n", req_reply.FilesName)
+				fmt.Printf("Worker %v get new reduce task\n", workerID)
 
 				reduce_data := parseMapResult(req_reply.FilesName)
 
 				total_reduce_result := make([]string, 0)
 				for k, v := range reduce_data {
 					cur_k_reduce_result := reducef(k, v)
-					format_reduce_result := fmt.Sprint("%v %v\n", k, cur_k_reduce_result)
+					format_reduce_result := fmt.Sprintf("%v %v\n", k, cur_k_reduce_result)
 					total_reduce_result = append(total_reduce_result, format_reduce_result)
 				}
 
 				out_file_name := reduceResultWriter(total_reduce_result, req_reply.ReduceID)
 
 				out_files[0] = out_file_name
+
+				fmt.Printf("Worker %v finish reduce task\n", workerID)
 			}
 			if req_reply.TaskType == Task_Type_Wait {
-				fmt.Printf("task type is wait\n")
+				//fmt.Printf("task type is wait\n")
+			}
+			if req_reply.TaskType == Task_Type_Finished {
+				//fmt.Printf("task finished!\n")
+				break
 			}
 		} else {
 			fmt.Printf("request task failed!\n")
@@ -95,7 +105,7 @@ func Worker(mapf func(string, string) []KeyValue,
 		complete_args.FilesName = out_files
 		if call("Master.CompleteTask", &complete_args, &complete_reply) {
 			if !complete_reply.HasNextTask {
-				fmt.Println("not have task, break")
+				//fmt.Println("not have task, break")
 				break
 			}
 		} else {
@@ -123,7 +133,7 @@ func mapResultWriter(map_result []KeyValue, task_ID int64) *map[int]string {
 
 	output_files_name := make(map[int]string)
 	for reduce_ID, data := range split_map_result {
-		cur_ID_output := fmt.Sprintf("./int/mr-int-%v-%v", task_ID, reduce_ID)
+		cur_ID_output := fmt.Sprintf("mr-int-%v-%v", task_ID, reduce_ID)
 		output_files_name[reduce_ID] = cur_ID_output
 
 		ofile, err := os.Create(cur_ID_output)
@@ -146,11 +156,11 @@ func mapResultWriter(map_result []KeyValue, task_ID int64) *map[int]string {
 }
 
 func parseMapResult(input_files []string) map[string][]string {
-	input_data := make([]KeyValue, 0)
+	input_data := make(map[string][]string, 0)
 	for _, file := range input_files {
 		cur_input, err := os.Open(file)
 		if err != nil {
-			fmt.Printf("open file error with %v", file)
+			//fmt.Printf("open file error with %v", file)
 		}
 
 		dec := json.NewDecoder(cur_input)
@@ -159,23 +169,31 @@ func parseMapResult(input_files []string) map[string][]string {
 			if err := dec.Decode(&kv); err != nil {
 				break
 			}
-			input_data = append(input_data, kv)
+			if _,ok := input_data[kv.Key]; !ok {
+				input_data[kv.Key] = make([]string, 0)
+			}
+			input_data[kv.Key] = append(input_data[kv.Key], kv.Value)
 		}
+		cur_input.Close()
 	}
 
-	return nil
+	return input_data
 }
 
 func reduceResultWriter(reduce_result []string, reduce_ID int) string {
-	out_file_name := "mr-out-" + string(reduce_ID)
+	out_file_name := fmt.Sprintf("mr-out-%v", reduce_ID)
+	//fmt.Print(reduce_result)
 	out_file, err := os.Create(out_file_name)
+	defer out_file.Close()
 	if err != nil {
-		fmt.Printf("output No.%v reduce result failed!", reduce_ID)
+		//fmt.Printf("output No.%v reduce result failed!", reduce_ID)
 		return ""
 	}
 
-	for one_line := range reduce_result {
-		fmt.Fprint(out_file, one_line)
+	for _, one_line := range reduce_result {
+		//fmt.Print(one_line)
+		//fmt.Fprintf(out_file, "%v", one_line)
+		out_file.WriteString(one_line)
 	}
 
 	return out_file_name
