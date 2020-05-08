@@ -2,6 +2,7 @@ package mr
 
 import (
     "errors"
+    "fmt"
     "log"
 )
 import "net"
@@ -76,6 +77,32 @@ type Master struct {
     task_status_mutex   sync.Mutex
     cur_task_ID     int64
     task_status     map[int64]*TaskDescriptor
+}
+
+func (m *Master) String() string {
+    var ret string
+    for k, v := range m.intermediate_files {
+        ret += fmt.Sprintf("%v:state=%v,reduce_ID=%v,files=", k, v.state, v.reduce_ID)
+        for _, file := range v.files_name {
+            ret += fmt.Sprintf("%v,", file)
+        }
+        ret += ";"
+    }
+    ret += "\n"
+
+    for k, v := range m.worker_status {
+        ret += fmt.Sprintf("%v:state=%v", k, v.state)
+        ret += ";"
+    }
+    ret += "\n"
+
+    for k, v := range m.task_status {
+        ret += fmt.Sprintf("%v:type=%v,input_file=%v,reduce_ID=%v", k, v.task_type, v.input_file, v.reduce_ID)
+        ret += ";"
+    }
+    ret += "\n"
+
+    return ret
 }
 
 func (m *Master) isMapFinished() bool {
@@ -249,7 +276,6 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
                  m.worker_status_mutex.Lock()
                  m.worker_status[args.WorkID].state = Worker_State_Reduce
                  m.worker_status[args.WorkID].task_ID = task_ID
-                 // todo m.worker_status[args.WorkID].task_bgein_time
                  m.worker_status_mutex.Unlock()
              }
          }
@@ -290,6 +316,7 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
     // 判断此Worker是否是已经超时的Worker
     m.worker_status_mutex.Lock()
     if m.worker_status[args.WorkerID].state == Worker_State_Timeout {
+        fmt.Printf("worker %v has been timeout", args.WorkerID)
         m.worker_status_mutex.Unlock()
         reply.HasNextTask = false
         return nil
@@ -336,15 +363,16 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
         }
         m.intermediate_files_mutex.Unlock()
 
-        //fmt.Printf("Map task:%v done, file name: %v\n", args.TaskID, task_file)
+        fmt.Printf("Map task:%v done, file name: %v\n", args.TaskID, task_file)
 
         // 维护Master状态
         if m.isMapFinished() {
-            //fmt.Printf("Master into Reduce phase\n")
+            fmt.Printf("Master into Reduce phase\n")
             m.cur_state = Master_State_Reduce
         }
 
         reply.HasNextTask = true
+        break
     }
     case Master_State_Reduce: {
 
@@ -353,7 +381,6 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
         m.task_status_mutex.Unlock()
 
         m.intermediate_files_mutex.Lock()
-        m.intermediate_files[reduce_ID] = &InterFilesDescriptor{}
         m.intermediate_files[reduce_ID].state = File_State_Done
         m.intermediate_files_mutex.Unlock()
 
@@ -365,6 +392,7 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
         //fmt.Printf("Reduce task:%v done\n", reduce_ID)
 
         reply.HasNextTask = true
+        break
     }
     case Master_State_Done: {
         reply.HasNextTask = false
@@ -380,7 +408,13 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
 }
 
 func (m *Master) PongWorker(args *PingArgs, reply *PingReply) error {
+    m.worker_status_mutex.Lock()
+    defer m.worker_status_mutex.Unlock()
     if worker, ok := m.worker_status[args.WorkerID]; ok {
+        if worker.state == Worker_State_Timeout {
+            return nil
+        }
+
         worker.task_begin_time_mutex.Lock()
         worker.task_bgein_time = time.Now().Unix()
         worker.task_begin_time_mutex.Unlock()
@@ -415,6 +449,7 @@ func (m *Master) Done() bool {
     m.cur_state_mutex.Lock()
     defer m.cur_state_mutex.Unlock()
     if m.cur_state == Master_State_Done {
+        fmt.Print(m)
 		ret = true
 	}
 
@@ -425,7 +460,7 @@ func WorkerAliveProbe(m *Master) {
     for {
         m.worker_status_mutex.Lock()
         cur_time := time.Now().Unix()
-        for _, v := range m.worker_status {
+        for k, v := range m.worker_status {
 
             v.task_begin_time_mutex.Lock()
             cp_last_ping_time := v.task_bgein_time
@@ -440,7 +475,7 @@ func WorkerAliveProbe(m *Master) {
             }
 
             if cur_time < cp_last_ping_time || cur_time - cp_last_ping_time > 3 {
-                //fmt.Printf("worker %v crashed!\n", k)
+                fmt.Printf("worker %v crashed!\n", k)
                 if v.state == Worker_State_Map {
                     m.input_files_mutex.Lock()
                     m.input_files[v.map_file] = File_State_Wait
@@ -453,6 +488,7 @@ func WorkerAliveProbe(m *Master) {
 
                     m.intermediate_files_mutex.Lock()
                     m.intermediate_files[reduce_ID].state = File_State_Wait
+                    fmt.Printf("worker %v crashed! task_id:%v, reduce id: %v, files_name: %v\n", k, v.task_ID, reduce_ID, m.intermediate_files[reduce_ID].files_name)
                     m.intermediate_files_mutex.Unlock()
                 }
 

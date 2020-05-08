@@ -11,6 +11,7 @@ import "log"
 import "net/rpc"
 import "hash/fnv"
 import "encoding/json"
+import "sort"
 
 //
 // Map functions return a slice of KeyValue.
@@ -59,7 +60,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			complete_args.TaskID = req_reply.TaskID
 			if req_reply.TaskType == Task_Type_Map {
 				//fmt.Printf("task type is map, task file name is %v\n", req_reply.FilesName)
-				//fmt.Printf("Worker %v get new map task, file name: %v\n", workerID, req_reply.FilesName[0])
+				fmt.Printf("Worker %v get new map task:%v, file name: %v\n", workerID, req_reply.TaskID, req_reply.FilesName[0])
 				input_file, err := os.Open(req_reply.FilesName[0])
 				defer input_file.Close()
 				if err != nil {
@@ -72,13 +73,14 @@ func Worker(mapf func(string, string) []KeyValue,
 				map_out_files := mapResultWriter(map_result, req_reply.TaskID)
 				out_files = *map_out_files
 
-				//fmt.Printf("Worker %v finish map task\n", workerID)
+				fmt.Printf("Worker %v finish map task\n", workerID)
 			}
 			if req_reply.TaskType == Task_Type_Reduce {
 				//fmt.Printf("task type is reduce, task file name is %v\n", req_reply.FilesName)
-				//fmt.Printf("Worker %v get new reduce task\n", workerID)
+				fmt.Printf("Worker %v get new reduce task, files_name:%v\n", workerID, req_reply.FilesName)
 
 				reduce_data := parseMapResult(req_reply.FilesName)
+				fmt.Printf("parse map result:%v\n", reduce_data)
 
 				total_reduce_result := make([]string, 0)
 				for k, v := range reduce_data {
@@ -91,7 +93,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 				out_files[0] = out_file_name
 
-				//fmt.Printf("Worker %v finish reduce task\n", workerID)
+				fmt.Printf("Worker %v finish reduce task\n", workerID)
 			}
 			if req_reply.TaskType == Task_Type_Wait {
 				//fmt.Printf("task type is wait\n")
@@ -160,7 +162,7 @@ func parseMapResult(input_files []string) map[string][]string {
 	for _, file := range input_files {
 		cur_input, err := os.Open(file)
 		if err != nil {
-			//fmt.Printf("open file error with %v", file)
+			log.Fatalf("open file error with %v, error:%v\n", file, err.Error())
 		}
 
 		dec := json.NewDecoder(cur_input)
@@ -175,6 +177,10 @@ func parseMapResult(input_files []string) map[string][]string {
 			input_data[kv.Key] = append(input_data[kv.Key], kv.Value)
 		}
 		cur_input.Close()
+	}
+
+	for _, v := range input_data {
+		sort.Sort(sort.StringSlice(v))
 	}
 
 	return input_data
