@@ -2,7 +2,6 @@ package mr
 
 import (
     "errors"
-    "fmt"
     "log"
 )
 import "net"
@@ -39,6 +38,8 @@ type WorkerState struct {
     state    WorkerStateEnum // state
     map_file string          // map tasks分配的file name //todo 与task描述中的file重复了
     task_ID  int64
+
+    task_begin_time_mutex sync.Mutex
     task_bgein_time int64
 }
 
@@ -263,10 +264,10 @@ func (m *Master) RequestTask(args *ReqArgs, reply *ReqReply) error {
     }
     }
 
-    // 维护worker时间戳
-    m.worker_status_mutex.Lock()
-    m.worker_status[args.WorkID].task_bgein_time = time.Now().Unix()
-    m.worker_status_mutex.Unlock()
+    //// 维护worker时间戳
+    //m.worker_status_mutex.Lock()
+    //m.worker_status[args.WorkID].task_bgein_time = time.Now().Unix()
+    //m.worker_status_mutex.Unlock()
 
     return nil
 }
@@ -289,6 +290,7 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
     // 判断此Worker是否是已经超时的Worker
     m.worker_status_mutex.Lock()
     if m.worker_status[args.WorkerID].state == Worker_State_Timeout {
+        m.worker_status_mutex.Unlock()
         reply.HasNextTask = false
         return nil
     }
@@ -377,6 +379,16 @@ func (m *Master) CompleteTask(args *CompleteArgs, reply *CompleteReply) error {
     return nil
 }
 
+func (m *Master) PongWorker(args *PingArgs, reply *PingReply) error {
+    if worker, ok := m.worker_status[args.WorkerID]; ok {
+        worker.task_begin_time_mutex.Lock()
+        worker.task_bgein_time = time.Now().Unix()
+        worker.task_begin_time_mutex.Unlock()
+    }
+
+    return nil
+}
+
 //
 // start a thread that listens for RPCs from worker.go
 //
@@ -413,18 +425,22 @@ func WorkerAliveProbe(m *Master) {
     for {
         m.worker_status_mutex.Lock()
         cur_time := time.Now().Unix()
-        for k, v := range m.worker_status {
+        for _, v := range m.worker_status {
+
+            v.task_begin_time_mutex.Lock()
+            cp_last_ping_time := v.task_bgein_time
+            v.task_begin_time_mutex.Unlock()
 
             if v.state == Worker_State_Timeout {
                 continue
             }
 
-            if v.task_bgein_time == 0 {
+            if cp_last_ping_time == 0 {
                 continue
             }
 
-            if cur_time < v.task_bgein_time || cur_time - v.task_bgein_time > 3 {
-                fmt.Printf("worker %v crashed!\n", k)
+            if cur_time < cp_last_ping_time || cur_time - cp_last_ping_time > 3 {
+                //fmt.Printf("worker %v crashed!\n", k)
                 if v.state == Worker_State_Map {
                     m.input_files_mutex.Lock()
                     m.input_files[v.map_file] = File_State_Wait
@@ -471,13 +487,12 @@ func MakeMaster(files []string, nReduce int) *Master {
     //fmt.Println(m.input_files)
     m.input_files_mutex.Unlock()
 
-    fmt.Printf("total input files: %v\n", len(m.input_files))
+    //fmt.Printf("total input files: %v\n", len(m.input_files))
 
     // Your code here.
 
     m.server()
 
-    //todo 任务超时判断
     go WorkerAliveProbe(&m)
 
 

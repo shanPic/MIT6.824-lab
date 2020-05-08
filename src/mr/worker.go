@@ -38,6 +38,8 @@ func Worker(mapf func(string, string) []KeyValue,
 
 	workerID, err := CallGetWorkerID()
 
+	go PingMaster(workerID)
+
 	if err != nil {
 		log.Fatal("get worker ID failed!")
 		return
@@ -57,7 +59,7 @@ func Worker(mapf func(string, string) []KeyValue,
 			complete_args.TaskID = req_reply.TaskID
 			if req_reply.TaskType == Task_Type_Map {
 				//fmt.Printf("task type is map, task file name is %v\n", req_reply.FilesName)
-				fmt.Printf("Worker %v get new map task\n", workerID)
+				//fmt.Printf("Worker %v get new map task, file name: %v\n", workerID, req_reply.FilesName[0])
 				input_file, err := os.Open(req_reply.FilesName[0])
 				defer input_file.Close()
 				if err != nil {
@@ -70,11 +72,11 @@ func Worker(mapf func(string, string) []KeyValue,
 				map_out_files := mapResultWriter(map_result, req_reply.TaskID)
 				out_files = *map_out_files
 
-				fmt.Printf("Worker %v finish map task\n", workerID)
+				//fmt.Printf("Worker %v finish map task\n", workerID)
 			}
 			if req_reply.TaskType == Task_Type_Reduce {
 				//fmt.Printf("task type is reduce, task file name is %v\n", req_reply.FilesName)
-				fmt.Printf("Worker %v get new reduce task\n", workerID)
+				//fmt.Printf("Worker %v get new reduce task\n", workerID)
 
 				reduce_data := parseMapResult(req_reply.FilesName)
 
@@ -89,7 +91,7 @@ func Worker(mapf func(string, string) []KeyValue,
 
 				out_files[0] = out_file_name
 
-				fmt.Printf("Worker %v finish reduce task\n", workerID)
+				//fmt.Printf("Worker %v finish reduce task\n", workerID)
 			}
 			if req_reply.TaskType == Task_Type_Wait {
 				//fmt.Printf("task type is wait\n")
@@ -99,13 +101,13 @@ func Worker(mapf func(string, string) []KeyValue,
 				break
 			}
 		} else {
-			fmt.Printf("request task failed!\n")
+			//fmt.Printf("request task failed!\n")
 		}
 
 		complete_args.FilesName = out_files
 		if call("Master.CompleteTask", &complete_args, &complete_reply) {
 			if !complete_reply.HasNextTask {
-				//fmt.Println("not have task, break")
+				//fmt.Printf("worker %v not have task, break", workerID)
 				break
 			}
 		} else {
@@ -113,8 +115,6 @@ func Worker(mapf func(string, string) []KeyValue,
 		}
 
 		time.Sleep(1 * time.Second)
-
-		// todo
 	}
 }
 
@@ -211,11 +211,30 @@ func CallGetWorkerID() (int64, error) {
 	reply := GetIDReply{}
 
 	if call("Master.GetWorkerID", &args, &reply) {
-		fmt.Printf("reply GetworkID:%v\n", reply.WorkerID)
+		//fmt.Printf("reply GetworkID:%v\n", reply.WorkerID)
 		return reply.WorkerID, nil
 	}
 
 	return 0, errors.New("rpc call failed!")
+}
+
+func PingMaster(workerID int64) {
+	ping_arg := PingArgs{WorkerID: workerID}
+	ping_reply := PingReply{}
+
+	retry_count := 0
+
+	for {
+		if !call("Master.PongWorker", &ping_arg, &ping_reply) {
+			retry_count++
+		}
+
+		if retry_count > 3 {
+			os.Exit(1)
+		}
+
+		time.Sleep(1 * time.Second)
+	}
 }
 
 func call(rpcname string, args interface{}, reply interface{}) bool {

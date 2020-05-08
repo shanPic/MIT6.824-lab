@@ -54,6 +54,14 @@ type CompleteReply struct {
 	HasNextTask bool // 是否仍然继续等待下个任务 [true]:继续等待下个任务 [false]:再无下个任务
 }
 
+// for Master.PongWorker()
+type PingArgs struct {
+	WorkerID int64
+}
+
+type PingReply struct {
+}
+
 // Cook up a unique-ish UNIX-domain socket name
 // in /var/tmp, for the master.
 // Can't use the current directory since
